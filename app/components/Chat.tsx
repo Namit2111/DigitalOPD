@@ -1,6 +1,16 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { MedicalCase, checkAnswer, getRandomCase, helpMessage, welcomeMessage } from '../utils/gameData';
+import {
+  GameScore,
+  MedicalCase,
+  SCORING_CONFIG,
+  calculateScore,
+  checkAnswer,
+  getRandomCase,
+  helpMessage,
+  isContraIndicated,
+  welcomeMessage
+} from '../utils/gameData';
 
 interface Message {
   text: string;
@@ -14,10 +24,18 @@ export default function Chat() {
   const [inputText, setInputText] = useState('');
   const [currentCase, setCurrentCase] = useState<MedicalCase | null>(null);
   const [gameState, setGameState] = useState<GameState>('idle');
+  const [currentScore, setCurrentScore] = useState<GameScore>({
+    testPoints: 0,
+    diagnosisPoints: 0,
+    testAttempts: 0,
+    diagnosisAttempts: 0,
+    totalPoints: 0
+  });
+  const [totalScore, setTotalScore] = useState(0);
+  const [casesCompleted, setCasesCompleted] = useState(0);
   const scrollViewRef = useRef<ScrollView>(null);
 
   useEffect(() => {
-    // Show welcome message on start
     addBotMessage(welcomeMessage);
   }, []);
 
@@ -33,8 +51,15 @@ export default function Chat() {
     const newCase = getRandomCase();
     setCurrentCase(newCase);
     setGameState('awaiting_test');
+    setCurrentScore({
+      testPoints: 0,
+      diagnosisPoints: 0,
+      testAttempts: 0,
+      diagnosisAttempts: 0,
+      totalPoints: 0
+    });
     
-    const caseIntro = `🏥 New Patient Case
+    const caseIntro = `🏥 New Patient Case #${casesCompleted + 1}
 
 Age: ${newCase.patient.age}
 Gender: ${newCase.patient.gender}
@@ -50,52 +75,94 @@ Additional Findings: ${newCase.patient.additionalInfo}
   const handleTestAnswer = (userInput: string) => {
     if (!currentCase) return;
 
+    const newScore = { ...currentScore };
+    newScore.testAttempts++;
+
+    // Check for contra-indicated tests
+    if (isContraIndicated(userInput, currentCase.contraIndications)) {
+      addBotMessage(`⚠️ Warning: Your suggested test is contra-indicated for this patient! (0 points)
+      
+Reason: This could be harmful or inappropriate.
+The correct test would be: ${currentCase.correctTest}
+
+Now, based on the correct test results, what's your diagnosis? Please explain your reasoning.`);
+      newScore.testPoints = 0;
+      setCurrentScore(newScore);
+      setGameState('awaiting_diagnosis');
+      return;
+    }
+
     const accuracy = checkAnswer(userInput, currentCase.correctTest);
     let response = '';
 
     if (accuracy >= 0.7) {
+      const points = calculateScore(newScore.testAttempts);
+      newScore.testPoints = points;
       response = `✅ Excellent choice of tests! The ${currentCase.correctTest} is indeed the most appropriate approach.
+      
+💯 You earned ${points} points for test selection${newScore.testAttempts > 1 ? ` (-${(newScore.testAttempts - 1) * SCORING_CONFIG.POINTS_DEDUCTION} for extra attempts)` : '!'}
 
 Based on the test results and patient information, what's your diagnosis? Please explain your reasoning.`;
     } else if (accuracy >= 0.4) {
       response = `🤔 You're on the right track, but not quite there. The most appropriate test would be ${currentCase.correctTest}.
 
-Now, based on these test results, what's your diagnosis? Please explain your reasoning.`;
+Try again or type "proceed" to move on to diagnosis.`;
+      setCurrentScore(newScore);
+      return;
     } else {
       response = `❌ That's not quite right. The appropriate test in this case would be ${currentCase.correctTest}. Here's why:
 - It's the most direct way to assess the patient's condition
 - It provides crucial diagnostic information
 - It helps rule out other potential conditions
 
-Now, with these test results, what's your diagnosis? Please explain your reasoning.`;
+Try again or type "proceed" to move on to diagnosis.`;
+      setCurrentScore(newScore);
+      return;
     }
 
     addBotMessage(response);
+    setCurrentScore(newScore);
     setGameState('awaiting_diagnosis');
   };
 
   const handleDiagnosisAnswer = (userInput: string) => {
     if (!currentCase) return;
 
+    const newScore = { ...currentScore };
+    newScore.diagnosisAttempts++;
+
     const accuracy = checkAnswer(userInput, currentCase.correctDiagnosis);
     let response = '';
 
     if (accuracy >= 0.7) {
+      const points = calculateScore(newScore.diagnosisAttempts);
+      newScore.diagnosisPoints = points;
+      newScore.totalPoints = newScore.testPoints + points;
+      
       response = `🎉 Outstanding diagnosis! Yes, this is a case of ${currentCase.correctDiagnosis}.
 
-Your clinical reasoning was spot on! Would you like to try another case? Type "new case" when ready.`;
+📊 Case Score Breakdown:
+• Test Selection: ${newScore.testPoints}/${SCORING_CONFIG.MAX_TEST_POINTS} points
+• Diagnosis: ${points}/${SCORING_CONFIG.MAX_DIAGNOSIS_POINTS} points
+• Total: ${newScore.totalPoints}/10 points
+
+Your clinical reasoning was spot on! Type "new case" when ready for the next patient.`;
+
+      // Update total score and cases completed
+      setTotalScore(prev => prev + newScore.totalPoints);
+      setCasesCompleted(prev => prev + 1);
     } else if (accuracy >= 0.4) {
-      response = `🤔 You're getting warm! The correct diagnosis is ${currentCase.correctDiagnosis}.
-
-Keep practicing to improve your diagnostic skills! Type "new case" when ready for another patient.`;
+      response = `🤔 You're getting warm! Try again or type "proceed" to see the correct diagnosis.`;
+      setCurrentScore(newScore);
+      return;
     } else {
-      response = `❌ Not quite. The correct diagnosis is ${currentCase.correctDiagnosis}.
-
-Don't worry - these cases can be challenging! Each one is a learning opportunity.
-Type "new case" when you're ready to try another case.`;
+      response = `❌ Not quite. Try again or type "proceed" to see the correct diagnosis.`;
+      setCurrentScore(newScore);
+      return;
     }
 
     addBotMessage(response);
+    setCurrentScore(newScore);
     setGameState('idle');
     setCurrentCase(null);
   };
@@ -114,10 +181,56 @@ Type "new case" when you're ready to try another case.`;
         startNewCase();
       } else if (command === 'help') {
         addBotMessage(helpMessage);
+      } else if (command === 'score') {
+        const avgScore = casesCompleted > 0 ? (totalScore / casesCompleted).toFixed(1) : '0.0';
+        addBotMessage(`📊 Your Performance:
+• Total Score: ${totalScore} points
+• Cases Completed: ${casesCompleted}
+• Average Score: ${avgScore} points per case`);
       } else if (command === 'quit') {
-        addBotMessage("👋 Thanks for practicing! Come back anytime to improve your diagnostic skills.");
+        const avgScore = casesCompleted > 0 ? (totalScore / casesCompleted).toFixed(1) : '0.0';
+        addBotMessage(`👋 Thanks for practicing! Here's your final score:
+
+• Total Score: ${totalScore} points
+• Cases Completed: ${casesCompleted}
+• Average Score: ${avgScore} points per case
+
+Come back anytime to improve your diagnostic skills!`);
       } else {
-        addBotMessage("Type 'start' or 'new case' to begin, 'help' for instructions, or 'quit' to end the session.");
+        addBotMessage("Type 'start' or 'new case' to begin, 'help' for instructions, 'score' to see your performance, or 'quit' to end the session.");
+      }
+      return;
+    }
+
+    // Handle "proceed" command during test/diagnosis
+    if (userInput.toLowerCase() === 'proceed') {
+      if (gameState === 'awaiting_test') {
+        const newScore = { ...currentScore };
+        newScore.testPoints = 0;
+        setCurrentScore(newScore);
+        setGameState('awaiting_diagnosis');
+        addBotMessage(`The correct test would be: ${currentCase?.correctTest}
+
+Now, what's your diagnosis? Please explain your reasoning.`);
+      } else if (gameState === 'awaiting_diagnosis') {
+        const newScore = { ...currentScore };
+        newScore.diagnosisPoints = 0;
+        newScore.totalPoints = newScore.testPoints;
+        setCurrentScore(newScore);
+        setTotalScore(prev => prev + newScore.totalPoints);
+        setCasesCompleted(prev => prev + 1);
+        
+        addBotMessage(`The correct diagnosis is: ${currentCase?.correctDiagnosis}
+
+📊 Case Score Breakdown:
+• Test Selection: ${newScore.testPoints}/${SCORING_CONFIG.MAX_TEST_POINTS} points
+• Diagnosis: 0/${SCORING_CONFIG.MAX_DIAGNOSIS_POINTS} points
+• Total: ${newScore.totalPoints}/10 points
+
+Type "new case" when you're ready to try another case.`);
+        
+        setGameState('idle');
+        setCurrentCase(null);
       }
       return;
     }
@@ -135,8 +248,12 @@ Type "new case" when you're ready to try another case.`;
       <View style={styles.header}>
         <Text style={styles.headerText}>Medical Diagnosis Trainer</Text>
         <Text style={styles.subHeaderText}>
-          {gameState === 'idle' ? 'Ready for a new case!' :
-           gameState === 'awaiting_test' ? 'Suggesting Tests' : 'Making Diagnosis'}
+          {gameState === 'idle' 
+            ? `Score: ${totalScore} pts | Cases: ${casesCompleted}`
+            : gameState === 'awaiting_test' 
+              ? 'Suggesting Tests'
+              : 'Making Diagnosis'
+          }
         </Text>
       </View>
       <ScrollView 
@@ -167,9 +284,11 @@ Type "new case" when you're ready to try another case.`;
           value={inputText}
           onChangeText={setInputText}
           placeholder={
-            gameState === 'idle' ? "Type 'start' or 'help'..." :
-            gameState === 'awaiting_test' ? "Enter recommended tests..." :
-            "Enter your diagnosis..."
+            gameState === 'idle' 
+              ? "Type 'start', 'help', or 'score'..." 
+              : gameState === 'awaiting_test'
+                ? "Enter recommended tests..."
+                : "Enter your diagnosis..."
           }
           onSubmitEditing={handleSend}
           multiline
