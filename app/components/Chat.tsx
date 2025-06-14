@@ -1,9 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
+import { useChat } from '../hooks/useChat';
+import { useGameState } from '../hooks/useGameState';
 import { gameApi } from '../services/gameApi';
 import {
-  GameScore,
-  MedicalCase,
   calculateScore,
   checkAnswer,
   getRandomCase,
@@ -11,29 +11,29 @@ import {
   isContraIndicated,
   welcomeMessage
 } from '../utils/gameData';
-
-interface Message {
-  text: string;
-  sender: 'user' | 'bot';
-}
-
-type GameState = 'login' | 'idle' | 'awaiting_test' | 'awaiting_diagnosis';
+import ChatHeader from './ChatHeader';
+import ChatInput from './ChatInput';
+import ChatMessage from './ChatMessage';
 
 export default function Chat() {
-  const [messages, setMessages] = useState<Message[]>([]);
+  const {
+    gameState,
+    username,
+    currentCase,
+    currentScore,
+    totalScore,
+    casesCompleted,
+    setGameState,
+    setUsername,
+    setCurrentCase,
+    setCurrentScore,
+    updateTotalScore,
+    incrementCasesCompleted,
+    resetCurrentScore
+  } = useGameState();
+
+  const { messages, addBotMessage, addUserMessage } = useChat();
   const [inputText, setInputText] = useState('');
-  const [currentCase, setCurrentCase] = useState<MedicalCase | null>(null);
-  const [gameState, setGameState] = useState<GameState>('login');
-  const [username, setUsername] = useState('');
-  const [currentScore, setCurrentScore] = useState<GameScore>({
-    testPoints: 0,
-    diagnosisPoints: 0,
-    testAttempts: 0,
-    diagnosisAttempts: 0,
-    totalPoints: 0
-  });
-  const [totalScore, setTotalScore] = useState(0);
-  const [casesCompleted, setCasesCompleted] = useState(0);
   const scrollViewRef = useRef<ScrollView>(null);
 
   useEffect(() => {
@@ -41,14 +41,6 @@ export default function Chat() {
       addBotMessage("👋 Welcome! Please enter your username to start the game.");
     }
   }, []);
-
-  const addBotMessage = (text: string) => {
-    setMessages(prev => [...prev, { text, sender: 'bot' }]);
-  };
-
-  const addUserMessage = (text: string) => {
-    setMessages(prev => [...prev, { text, sender: 'user' }]);
-  };
 
   const handleLogin = async (username: string) => {
     try {
@@ -66,13 +58,7 @@ export default function Chat() {
     const newCase = getRandomCase();
     setCurrentCase(newCase);
     setGameState('awaiting_test');
-    setCurrentScore({
-      testPoints: 0,
-      diagnosisPoints: 0,
-      testAttempts: 0,
-      diagnosisAttempts: 0,
-      totalPoints: 0
-    });
+    resetCurrentScore();
 
     try {
       await gameApi.startCase(newCase.correctDiagnosis);
@@ -200,8 +186,8 @@ Your clinical reasoning was spot on! Type "new case" when ready for the next pat
         console.error('Error completing case:', error);
       }
 
-      setTotalScore(prev => prev + newScore.totalPoints);
-      setCasesCompleted(prev => prev + 1);
+      updateTotalScore(newScore.totalPoints);
+      incrementCasesCompleted();
       setGameState('idle');
       setCurrentCase(null);
     } else if (accuracy >= 0.4) {
@@ -298,8 +284,8 @@ Now, what's your diagnosis? Please explain your reasoning.`);
         }
 
         setCurrentScore(newScore);
-        setTotalScore(prev => prev + newScore.totalPoints);
-        setCasesCompleted(prev => prev + 1);
+        updateTotalScore(newScore.totalPoints);
+        incrementCasesCompleted();
         
         addBotMessage(`The correct diagnosis is: ${currentCase?.correctDiagnosis}
 
@@ -326,55 +312,26 @@ Type "new case" when you're ready to try another case.`);
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.headerText}>Medical Diagnosis Trainer</Text>
-        <Text style={styles.subHeaderText}>
-          {gameState === 'login' ? 'Welcome!' :
-           gameState === 'idle' ? `Score: ${totalScore} pts | Cases: ${casesCompleted}` :
-           gameState === 'awaiting_test' ? 'Suggesting Tests' : 'Making Diagnosis'
-          }
-        </Text>
-      </View>
+      <ChatHeader
+        gameState={gameState}
+        totalScore={totalScore}
+        casesCompleted={casesCompleted}
+      />
       <ScrollView 
         style={styles.messagesContainer}
         ref={scrollViewRef}
         onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
       >
         {messages.map((message, index) => (
-          <View
-            key={index}
-            style={[
-              styles.messageBox,
-              message.sender === 'user' ? styles.userMessage : styles.botMessage,
-            ]}
-          >
-            <Text style={[
-              styles.messageText,
-              message.sender === 'user' ? styles.userMessageText : styles.botMessageText
-            ]}>
-              {message.text}
-            </Text>
-          </View>
+          <ChatMessage key={index} message={message} />
         ))}
       </ScrollView>
-      <View style={styles.inputContainer}>
-        <TextInput
-          style={styles.input}
-          value={inputText}
-          onChangeText={setInputText}
-          placeholder={
-            gameState === 'login' ? "Enter your username..." :
-            gameState === 'idle' ? "Type 'start', 'help', or 'score'..." :
-            gameState === 'awaiting_test' ? "Enter recommended tests..." :
-            "Enter your diagnosis..."
-          }
-          onSubmitEditing={handleSend}
-          multiline
-        />
-        <TouchableOpacity style={styles.sendButton} onPress={handleSend}>
-          <Text style={styles.sendButtonText}>Send</Text>
-        </TouchableOpacity>
-      </View>
+      <ChatInput
+        inputText={inputText}
+        onChangeText={setInputText}
+        onSend={handleSend}
+        gameState={gameState}
+      />
     </View>
   );
 }
@@ -384,79 +341,8 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#fff',
   },
-  header: {
-    padding: 15,
-    backgroundColor: '#2c3e50',
-    alignItems: 'center',
-  },
-  headerText: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  subHeaderText: {
-    fontSize: 14,
-    color: '#ecf0f1',
-    marginTop: 5,
-  },
   messagesContainer: {
     flex: 1,
     padding: 10,
-    backgroundColor: '#f5f6fa',
-  },
-  messageBox: {
-    maxWidth: '85%',
-    padding: 15,
-    marginVertical: 5,
-    borderRadius: 15,
-    elevation: 1,
-  },
-  userMessage: {
-    alignSelf: 'flex-end',
-    backgroundColor: '#3498db',
-    borderBottomRightRadius: 5,
-  },
-  botMessage: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#fff',
-    borderBottomLeftRadius: 5,
-  },
-  messageText: {
-    fontSize: 16,
-    lineHeight: 22,
-  },
-  userMessageText: {
-    color: '#fff',
-  },
-  botMessageText: {
-    color: '#2c3e50',
-  },
-  inputContainer: {
-    flexDirection: 'row',
-    padding: 10,
-    borderTopWidth: 1,
-    borderTopColor: '#dcdde1',
-    backgroundColor: '#fff',
-  },
-  input: {
-    flex: 1,
-    padding: 15,
-    backgroundColor: '#f5f6fa',
-    borderRadius: 20,
-    marginRight: 10,
-    maxHeight: 100,
-    color: '#2c3e50',
-  },
-  sendButton: {
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#3498db',
-    paddingHorizontal: 20,
-    borderRadius: 20,
-  },
-  sendButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
   },
 }); 
