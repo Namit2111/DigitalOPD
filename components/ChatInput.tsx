@@ -1,6 +1,6 @@
 import React from 'react';
 import { StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { GameState } from '../app/hooks/useGameState';
+import { GameState } from '../hooks/useGameState';
 
 interface ChatInputProps {
   inputText: string;
