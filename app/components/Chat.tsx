@@ -1,9 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { gameApi } from '../services/gameApi';
 import {
   GameScore,
   MedicalCase,
-  SCORING_CONFIG,
   calculateScore,
   checkAnswer,
   getRandomCase,
@@ -17,13 +17,14 @@ interface Message {
   sender: 'user' | 'bot';
 }
 
-type GameState = 'idle' | 'awaiting_test' | 'awaiting_diagnosis';
+type GameState = 'login' | 'idle' | 'awaiting_test' | 'awaiting_diagnosis';
 
 export default function Chat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [currentCase, setCurrentCase] = useState<MedicalCase | null>(null);
-  const [gameState, setGameState] = useState<GameState>('idle');
+  const [gameState, setGameState] = useState<GameState>('login');
+  const [username, setUsername] = useState('');
   const [currentScore, setCurrentScore] = useState<GameScore>({
     testPoints: 0,
     diagnosisPoints: 0,
@@ -36,7 +37,9 @@ export default function Chat() {
   const scrollViewRef = useRef<ScrollView>(null);
 
   useEffect(() => {
-    addBotMessage(welcomeMessage);
+    if (gameState === 'login') {
+      addBotMessage("👋 Welcome! Please enter your username to start the game.");
+    }
   }, []);
 
   const addBotMessage = (text: string) => {
@@ -47,7 +50,19 @@ export default function Chat() {
     setMessages(prev => [...prev, { text, sender: 'user' }]);
   };
 
-  const startNewCase = () => {
+  const handleLogin = async (username: string) => {
+    try {
+      await gameApi.startSession(username);
+      setGameState('idle');
+      addBotMessage(welcomeMessage);
+      setUsername(username);
+    } catch (error) {
+      console.error('Login error:', error);
+      addBotMessage("Sorry, there was an error starting your session. Please try again.");
+    }
+  };
+
+  const startNewCase = async () => {
     const newCase = getRandomCase();
     setCurrentCase(newCase);
     setGameState('awaiting_test');
@@ -58,6 +73,17 @@ export default function Chat() {
       diagnosisAttempts: 0,
       totalPoints: 0
     });
+
+    try {
+      await gameApi.startCase(newCase.correctDiagnosis);
+      await gameApi.logAction('START_CASE', { 
+        caseId: newCase.correctDiagnosis,
+        patientAge: newCase.patient.age,
+        patientGender: newCase.patient.gender
+      });
+    } catch (error) {
+      console.error('Error starting case:', error);
+    }
     
     const caseIntro = `🏥 New Patient Case #${casesCompleted + 1}
 
@@ -72,13 +98,22 @@ Additional Findings: ${newCase.patient.additionalInfo}
     addBotMessage(caseIntro);
   };
 
-  const handleTestAnswer = (userInput: string) => {
+  const handleTestAnswer = async (userInput: string) => {
     if (!currentCase) return;
 
     const newScore = { ...currentScore };
     newScore.testAttempts++;
 
-    // Check for contra-indicated tests
+    try {
+      await gameApi.logAction('SUBMIT_TEST', {
+        attempt: newScore.testAttempts,
+        userInput,
+        isContraIndicated: isContraIndicated(userInput, currentCase.contraIndications)
+      });
+    } catch (error) {
+      console.error('Error logging test attempt:', error);
+    }
+
     if (isContraIndicated(userInput, currentCase.contraIndications)) {
       addBotMessage(`⚠️ Warning: Your suggested test is contra-indicated for this patient! (0 points)
       
@@ -93,7 +128,6 @@ Now, based on the correct test results, what's your diagnosis? Please explain yo
     }
 
     const accuracy = checkAnswer(userInput, currentCase.correctTest);
-    console.log(accuracy);
     let response = '';
 
     if (accuracy >= 0.7) {
@@ -101,16 +135,14 @@ Now, based on the correct test results, what's your diagnosis? Please explain yo
       newScore.testPoints = points;
       response = `✅ Excellent choice of tests! The ${currentCase.correctTest} is indeed the most appropriate approach.
       
-💯 You earned ${points} points for test selection${newScore.testAttempts > 1 ? ` (-${(newScore.testAttempts - 1) * SCORING_CONFIG.POINTS_DEDUCTION} for extra attempts)` : '!'}
+💯 You earned ${points} points for test selection${newScore.testAttempts > 1 ? ` (-${(newScore.testAttempts - 1) * 2} for extra attempts)` : '!'}
 
 Based on the test results and patient information, what's your diagnosis? Please explain your reasoning.`;
+      setGameState('awaiting_diagnosis');
     } else if (accuracy >= 0.4) {
       response = `🤔 You're on the right track, but not quite there. The most appropriate test would be ${currentCase.correctTest}.
 
 Try again or type "proceed" to move on to diagnosis.`;
-      setCurrentScore(newScore);
-      addBotMessage(response);
-      return;
     } else {
       response = `❌ That's not quite right. The appropriate test in this case would be ${currentCase.correctTest}. Here's why:
 - It's the most direct way to assess the patient's condition
@@ -118,21 +150,26 @@ Try again or type "proceed" to move on to diagnosis.`;
 - It helps rule out other potential conditions
 
 Try again or type "proceed" to move on to diagnosis.`;
-      setCurrentScore(newScore);
-      addBotMessage(response);
-      return;
     }
 
     addBotMessage(response);
     setCurrentScore(newScore);
-    setGameState('awaiting_diagnosis');
   };
 
-  const handleDiagnosisAnswer = (userInput: string) => {
+  const handleDiagnosisAnswer = async (userInput: string) => {
     if (!currentCase) return;
 
     const newScore = { ...currentScore };
     newScore.diagnosisAttempts++;
+
+    try {
+      await gameApi.logAction('SUBMIT_DIAGNOSIS', {
+        attempt: newScore.diagnosisAttempts,
+        userInput
+      });
+    } catch (error) {
+      console.error('Error logging diagnosis attempt:', error);
+    }
 
     const accuracy = checkAnswer(userInput, currentCase.correctDiagnosis);
     let response = '';
@@ -145,39 +182,49 @@ Try again or type "proceed" to move on to diagnosis.`;
       response = `🎉 Outstanding diagnosis! Yes, this is a case of ${currentCase.correctDiagnosis}.
 
 📊 Case Score Breakdown:
-• Test Selection: ${newScore.testPoints}/${SCORING_CONFIG.MAX_TEST_POINTS} points
-• Diagnosis: ${points}/${SCORING_CONFIG.MAX_DIAGNOSIS_POINTS} points
+• Test Selection: ${newScore.testPoints}/5 points
+• Diagnosis: ${points}/5 points
 • Total: ${newScore.totalPoints}/10 points
 
 Your clinical reasoning was spot on! Type "new case" when ready for the next patient.`;
 
-      // Update total score and cases completed
+      try {
+        await gameApi.completeCase(
+          newScore.testAttempts,
+          newScore.diagnosisAttempts,
+          newScore.testPoints,
+          newScore.diagnosisPoints,
+          newScore.totalPoints
+        );
+      } catch (error) {
+        console.error('Error completing case:', error);
+      }
+
       setTotalScore(prev => prev + newScore.totalPoints);
       setCasesCompleted(prev => prev + 1);
+      setGameState('idle');
+      setCurrentCase(null);
     } else if (accuracy >= 0.4) {
       response = `🤔 You're getting warm! Try again or type "proceed" to see the correct diagnosis.`;
-      setCurrentScore(newScore);
-      addBotMessage(response);
-      return;
     } else {
       response = `❌ Not quite. Try again or type "proceed" to see the correct diagnosis.`;
-      setCurrentScore(newScore);
-      addBotMessage(response);
-      return;
     }
 
     addBotMessage(response);
     setCurrentScore(newScore);
-    setGameState('idle');
-    setCurrentCase(null);
   };
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (inputText.trim() === '') return;
 
     const userInput = inputText.trim();
     addUserMessage(userInput);
     setInputText('');
+
+    if (gameState === 'login') {
+      await handleLogin(userInput);
+      return;
+    }
 
     // Handle commands in idle state
     if (gameState === 'idle') {
@@ -185,30 +232,46 @@ Your clinical reasoning was spot on! Type "new case" when ready for the next pat
       if (command === 'start' || command === 'new case') {
         startNewCase();
       } else if (command === 'help') {
+        await gameApi.logAction('VIEW_HELP', {});
         addBotMessage(helpMessage);
       } else if (command === 'score') {
-        const avgScore = casesCompleted > 0 ? (totalScore / casesCompleted).toFixed(1) : '0.0';
-        addBotMessage(`📊 Your Performance:
-• Total Score: ${totalScore} points
-• Cases Completed: ${casesCompleted}
-• Average Score: ${avgScore} points per case`);
+        try {
+          const stats = await gameApi.getUserStats();
+          addBotMessage(`📊 Your Performance:
+• Total Score: ${stats.total_score} points
+• Cases Completed: ${stats.total_cases}
+• Average Score: ${stats.avg_score_per_case} points per case`);
+        } catch (error) {
+          console.error('Error fetching stats:', error);
+          addBotMessage("Sorry, there was an error fetching your statistics.");
+        }
       } else if (command === 'quit') {
-        const avgScore = casesCompleted > 0 ? (totalScore / casesCompleted).toFixed(1) : '0.0';
-        addBotMessage(`👋 Thanks for practicing! Here's your final score:
+        try {
+          await gameApi.endSession(totalScore, casesCompleted);
+          const stats = await gameApi.getUserStats();
+          addBotMessage(`👋 Thanks for practicing! Here's your final score:
 
-• Total Score: ${totalScore} points
-• Cases Completed: ${casesCompleted}
-• Average Score: ${avgScore} points per case
+• Total Score: ${stats.total_score} points
+• Cases Completed: ${stats.total_cases}
+• Average Score: ${stats.avg_score_per_case} points per case
 
 Come back anytime to improve your diagnostic skills!`);
+        } catch (error) {
+          console.error('Error ending session:', error);
+          addBotMessage("Thanks for practicing! Come back anytime to improve your diagnostic skills.");
+        }
       } else {
         addBotMessage("Type 'start' or 'new case' to begin, 'help' for instructions, 'score' to see your performance, or 'quit' to end the session.");
       }
       return;
     }
 
-    // Handle "proceed" command during test/diagnosis
+    // Handle "proceed" command
     if (userInput.toLowerCase() === 'proceed') {
+      await gameApi.logAction('SKIP_STEP', { 
+        stage: gameState === 'awaiting_test' ? 'test' : 'diagnosis'
+      });
+
       if (gameState === 'awaiting_test') {
         const newScore = { ...currentScore };
         newScore.testPoints = 0;
@@ -221,6 +284,19 @@ Now, what's your diagnosis? Please explain your reasoning.`);
         const newScore = { ...currentScore };
         newScore.diagnosisPoints = 0;
         newScore.totalPoints = newScore.testPoints;
+        
+        try {
+          await gameApi.completeCase(
+            newScore.testAttempts,
+            newScore.diagnosisAttempts,
+            newScore.testPoints,
+            0,
+            newScore.totalPoints
+          );
+        } catch (error) {
+          console.error('Error completing case:', error);
+        }
+
         setCurrentScore(newScore);
         setTotalScore(prev => prev + newScore.totalPoints);
         setCasesCompleted(prev => prev + 1);
@@ -228,8 +304,8 @@ Now, what's your diagnosis? Please explain your reasoning.`);
         addBotMessage(`The correct diagnosis is: ${currentCase?.correctDiagnosis}
 
 📊 Case Score Breakdown:
-• Test Selection: ${newScore.testPoints}/${SCORING_CONFIG.MAX_TEST_POINTS} points
-• Diagnosis: 0/${SCORING_CONFIG.MAX_DIAGNOSIS_POINTS} points
+• Test Selection: ${newScore.testPoints}/5 points
+• Diagnosis: 0/5 points
 • Total: ${newScore.totalPoints}/10 points
 
 Type "new case" when you're ready to try another case.`);
@@ -242,9 +318,9 @@ Type "new case" when you're ready to try another case.`);
 
     // Handle game responses
     if (gameState === 'awaiting_test') {
-      handleTestAnswer(userInput);
+      await handleTestAnswer(userInput);
     } else if (gameState === 'awaiting_diagnosis') {
-      handleDiagnosisAnswer(userInput);
+      await handleDiagnosisAnswer(userInput);
     }
   };
 
@@ -253,11 +329,9 @@ Type "new case" when you're ready to try another case.`);
       <View style={styles.header}>
         <Text style={styles.headerText}>Medical Diagnosis Trainer</Text>
         <Text style={styles.subHeaderText}>
-          {gameState === 'idle' 
-            ? `Score: ${totalScore} pts | Cases: ${casesCompleted}`
-            : gameState === 'awaiting_test' 
-              ? 'Suggesting Tests'
-              : 'Making Diagnosis'
+          {gameState === 'login' ? 'Welcome!' :
+           gameState === 'idle' ? `Score: ${totalScore} pts | Cases: ${casesCompleted}` :
+           gameState === 'awaiting_test' ? 'Suggesting Tests' : 'Making Diagnosis'
           }
         </Text>
       </View>
@@ -289,11 +363,10 @@ Type "new case" when you're ready to try another case.`);
           value={inputText}
           onChangeText={setInputText}
           placeholder={
-            gameState === 'idle' 
-              ? "Type 'start', 'help', or 'score'..." 
-              : gameState === 'awaiting_test'
-                ? "Enter recommended tests..."
-                : "Enter your diagnosis..."
+            gameState === 'login' ? "Enter your username..." :
+            gameState === 'idle' ? "Type 'start', 'help', or 'score'..." :
+            gameState === 'awaiting_test' ? "Enter recommended tests..." :
+            "Enter your diagnosis..."
           }
           onSubmitEditing={handleSend}
           multiline
