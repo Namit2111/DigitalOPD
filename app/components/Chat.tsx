@@ -93,6 +93,7 @@ Now, based on the correct test results, what's your diagnosis? Please explain yo
     }
 
     const accuracy = checkAnswer(userInput, currentCase.correctTest);
+    console.log(accuracy);
     let response = '';
 
     if (accuracy >= 0.7) {
@@ -108,6 +109,7 @@ Based on the test results and patient information, what's your diagnosis? Please
 
 Try again or type "proceed" to move on to diagnosis.`;
       setCurrentScore(newScore);
+      addBotMessage(response);
       return;
     } else {
       response = `❌ That's not quite right. The appropriate test in this case would be ${currentCase.correctTest}. Here's why:
@@ -117,6 +119,7 @@ Try again or type "proceed" to move on to diagnosis.`;
 
 Try again or type "proceed" to move on to diagnosis.`;
       setCurrentScore(newScore);
+      addBotMessage(response);
       return;
     }
 
@@ -154,10 +157,12 @@ Your clinical reasoning was spot on! Type "new case" when ready for the next pat
     } else if (accuracy >= 0.4) {
       response = `🤔 You're getting warm! Try again or type "proceed" to see the correct diagnosis.`;
       setCurrentScore(newScore);
+      addBotMessage(response);
       return;
     } else {
       response = `❌ Not quite. Try again or type "proceed" to see the correct diagnosis.`;
       setCurrentScore(newScore);
+      addBotMessage(response);
       return;
     }
 
