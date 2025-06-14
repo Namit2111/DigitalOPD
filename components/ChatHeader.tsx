@@ -1,6 +1,6 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { GameState } from '../hooks/useGameState';
+import { GameState } from '../app/hooks/useGameState';
 
 interface ChatHeaderProps {
   gameState: GameState;
