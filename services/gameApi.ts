@@ -1,4 +1,9 @@
-const API_BASE_URL = 'https://befc-27-4-50-236.ngrok-free.app/api';
+// Remote API base – still needed by the Sync-Manager when it is time to
+// push pending records to the backend. Keep it exported.
+export const API_BASE_URL = 'https://befc-27-4-50-236.ngrok-free.app/api';
+
+// Local database import
+import { localDb } from '../db/localDb';
 
 export type ActionType =
   | 'START_SESSION'
@@ -37,37 +42,44 @@ export interface SessionHistory {
   avg_points_per_case: number;
 }
 
+async function ensureLocalDbInitialised() {
+  // Make sure the DB is ready before any call
+  try {
+    await localDb.initialize();
+  } catch (_) {
+    // ignore if already initialised
+  }
+}
+
 function createGameApi() {
-  let sessionId: number | null = null;
-  let caseAttemptId: number | null = null;
+  let sessionId: number | null = null;      // local session row id
+  let caseAttemptId: number | null = null;  // local case_attempt row id
   let username: string | null = null;
 
   async function startSession(user: string): Promise<void> {
-    const res = await fetch(`${API_BASE_URL}/sessions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: user }),
-    });
+    await ensureLocalDbInitialised();
 
-    if (!res.ok) throw new Error('Failed to start session');
+    // Ensure a local user row exists (creates one if not present)
+    const localUser = (await localDb.getUserByUsername(user)) ?? await localDb.createUser(user);
 
-    const data: GameSession = await res.json();
-    sessionId = data.sessionId;
+    const session = await localDb.createSession(localUser.id);
+
+    sessionId = session.id;
     username = user;
 
-    await logAction('START_SESSION', { username });
+    await logAction('START_SESSION', { username: user });
   }
 
   async function endSession(totalScore: number, casesCompleted: number): Promise<void> {
     if (!sessionId) return;
 
-    const res = await fetch(`${API_BASE_URL}/sessions/${sessionId}/end`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ totalScore, casesCompleted }),
-    });
+    await ensureLocalDbInitialised();
 
-    if (!res.ok) throw new Error('Failed to end session');
+    await localDb.updateSession(sessionId, {
+      total_score: totalScore,
+      cases_completed: casesCompleted,
+      ended_at: new Date().toISOString(),
+    });
 
     await logAction('END_SESSION', { totalScore, casesCompleted });
 
@@ -78,16 +90,10 @@ function createGameApi() {
   async function startCase(caseId: string): Promise<void> {
     if (!sessionId) return;
 
-    const res = await fetch(`${API_BASE_URL}/case-attempts`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId, caseId }),
-    });
+    await ensureLocalDbInitialised();
 
-    if (!res.ok) throw new Error('Failed to start case');
-
-    const data: CaseAttempt = await res.json();
-    caseAttemptId = data.caseAttemptId;
+    const caseAttempt = await localDb.createCaseAttempt(sessionId, caseId);
+    caseAttemptId = caseAttempt.id;
 
     await logAction('START_CASE', { caseId });
   }
@@ -101,19 +107,15 @@ function createGameApi() {
   ): Promise<void> {
     if (!caseAttemptId) return;
 
-    const res = await fetch(`${API_BASE_URL}/case-attempts/${caseAttemptId}/complete`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        testAttempts,
-        diagnosisAttempts,
-        testPoints,
-        diagnosisPoints,
-        totalPoints,
-      }),
-    });
+    await ensureLocalDbInitialised();
 
-    if (!res.ok) throw new Error('Failed to complete case');
+    await localDb.completeCaseAttempt(caseAttemptId, {
+      testAttempts,
+      diagnosisAttempts,
+      testPoints,
+      diagnosisPoints,
+      totalPoints,
+    });
 
     await logAction('COMPLETE_CASE', {
       testAttempts,
@@ -129,45 +131,36 @@ function createGameApi() {
   async function logAction(actionType: ActionType, actionData: any): Promise<void> {
     if (!sessionId) return;
 
-    const res = await fetch(`${API_BASE_URL}/actions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sessionId,
-        caseAttemptId,
-        actionType,
-        actionData,
-      }),
-    });
+    await ensureLocalDbInitialised();
 
-    if (!res.ok) {
-      console.error('Failed to log action:', actionType);
+    try {
+      await localDb.createLearnerAction(sessionId, caseAttemptId, actionType, actionData);
+    } catch (error) {
+      console.error('Failed to log action locally:', actionType, error);
     }
   }
 
   async function getUserStats(): Promise<UserStats> {
     if (!username) throw new Error('No active user');
 
-    const res = await fetch(`${API_BASE_URL}/users/${username}/stats`);
-    if (!res.ok) throw new Error('Failed to fetch user stats');
-
-    const stats = await res.json();
-    return stats || {
-      username,
-      total_sessions: 0,
-      total_score: 0,
-      total_cases: 0,
-      avg_score_per_case: 0,
-    };
+    await ensureLocalDbInitialised();
+    return await localDb.getUserStats(username);
   }
 
   async function getSessionHistory(): Promise<SessionHistory[]> {
     if (!username) throw new Error('No active user');
 
-    const res = await fetch(`${API_BASE_URL}/users/${username}/history`);
-    if (!res.ok) throw new Error('Failed to fetch session history');
-
-    return res.json();
+    await ensureLocalDbInitialised();
+    const rawHistory = await localDb.getSessionHistory(username);
+    return rawHistory.map(h => ({
+      session_id: h.session_id,
+      total_score: h.total_score,
+      cases_completed: h.cases_completed,
+      started_at: h.started_at,
+      ended_at: h.ended_at ?? '',
+      total_attempts: h.total_attempts,
+      avg_points_per_case: h.avg_points_per_case,
+    }));
   }
 
   return {
