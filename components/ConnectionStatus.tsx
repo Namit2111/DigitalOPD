@@ -2,33 +2,41 @@ import NetInfo from '@react-native-community/netinfo';
 import React, { useEffect, useState } from 'react';
 import { Animated, StyleSheet, Text, View } from 'react-native';
 
-const ConnectionStatus: React.FC = () => {
+export const useConnectionStatus = () => {
   const [isOnline, setIsOnline] = useState(true);
-  const opacity = React.useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener(state => {
       setIsOnline(state.isConnected ?? true);
-      
-      // Animate the opacity when connection status changes
-      Animated.sequence([
-        Animated.timing(opacity, {
-          toValue: 0.4,
-          duration: 500,
-          useNativeDriver: true,
-        }),
-        Animated.timing(opacity, {
-          toValue: 1,
-          duration: 500,
-          useNativeDriver: true,
-        }),
-      ]).start();
     });
 
     return () => {
       unsubscribe();
     };
   }, []);
+
+  return isOnline;
+};
+
+const ConnectionStatus: React.FC = () => {
+  const isOnline = useConnectionStatus();
+  const opacity = React.useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    // Animate the opacity when connection status changes
+    Animated.sequence([
+      Animated.timing(opacity, {
+        toValue: 0.4,
+        duration: 500,
+        useNativeDriver: true,
+      }),
+      Animated.timing(opacity, {
+        toValue: 1,
+        duration: 500,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [isOnline]);
 
   return (
     <Animated.View style={[styles.container, { opacity }]}>
