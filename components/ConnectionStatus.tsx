@@ -2,6 +2,7 @@ import NetInfo from '@react-native-community/netinfo';
 import React, { useEffect, useState } from 'react';
 import { Animated, StyleSheet, Text, View } from 'react-native';
 
+
 export const useConnectionStatus = () => {
   const [isOnline, setIsOnline] = useState(true);
 
@@ -14,7 +15,18 @@ export const useConnectionStatus = () => {
       unsubscribe();
     };
   }, []);
-
+  // if(isOnline){
+  //   Toast.show({
+  //     type: 'success',
+  //     text1: 'online',
+  //   });
+  // }
+  // else{
+  //   Toast.show({
+  //     type: 'error',
+  //     text1: 'offline',
+  //   });
+  // }
   return isOnline;
 };
 
