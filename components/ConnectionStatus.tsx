@@ -1,32 +1,65 @@
 import NetInfo from '@react-native-community/netinfo';
 import React, { useEffect, useState } from 'react';
 import { Animated, StyleSheet, Text, View } from 'react-native';
-
+import Toast from 'react-native-toast-message';
 
 export const useConnectionStatus = () => {
   const [isOnline, setIsOnline] = useState(true);
+  const [wasPreviouslyOffline, setWasPreviouslyOffline] = useState(false);
 
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener(state => {
-      setIsOnline(state.isConnected ?? true);
+      const newIsOnline = state.isConnected ?? true;
+      
+      if (!newIsOnline) {
+        // Going offline
+        Toast.show({
+          type: 'error',
+          text1: 'offline',
+          text2: 'Changes will be stored locally',
+          position: 'top',
+          visibilityTime: 3000,
+        });
+        setWasPreviouslyOffline(true);
+      } else if (newIsOnline && wasPreviouslyOffline) {
+        // Coming back online after being offline
+        Toast.show({
+          type: 'success',
+          text1: 'online',
+          position: 'top',
+          visibilityTime: 3000,
+        });
+        
+        // Show syncing toast after online toast
+        setTimeout(() => {
+          Toast.show({
+            type: 'info',
+            text1: 'Syncing with backend',
+            text2: 'Your offline changes are being synchronized...',
+            position: 'top',
+            visibilityTime: 3000,
+          });
+        }, 3000);
+        
+        setWasPreviouslyOffline(false);
+      } else if (newIsOnline) {
+        // Just coming online (first time)
+        Toast.show({
+          type: 'success',
+          text1: 'online',
+          position: 'top',
+          visibilityTime: 3000,
+        });
+      }
+      
+      setIsOnline(newIsOnline);
     });
 
     return () => {
       unsubscribe();
     };
-  }, []);
-  // if(isOnline){
-  //   Toast.show({
-  //     type: 'success',
-  //     text1: 'online',
-  //   });
-  // }
-  // else{
-  //   Toast.show({
-  //     type: 'error',
-  //     text1: 'offline',
-  //   });
-  // }
+  }, [wasPreviouslyOffline]);
+
   return isOnline;
 };
 

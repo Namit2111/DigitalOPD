@@ -4,31 +4,11 @@ import React from 'react';
 import { KeyboardAvoidingView, Platform, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 // import ConnectionStatus from '../components/ConnectionStatus';
-import { useEffect } from 'react';
 import Toast from 'react-native-toast-message';
 import { useConnectionStatus } from '../components/ConnectionStatus';
 
 export default function Layout() {
   const isOnline = useConnectionStatus();
-
-  useEffect(() => {
-    if(isOnline){
-      Toast.show({
-        type: 'success',
-        text1: 'online',
-        position: 'top',
-        visibilityTime: 3000,
-      });
-    }
-    else{
-      Toast.show({
-        type: 'error',
-        text1: 'offline',
-        position: 'top',
-        visibilityTime: 3000,
-      });
-    }
-  }, [isOnline]);
 
   return (
     <>
