@@ -26,28 +26,30 @@ export default function ChatMessage({ message }: ChatMessageProps) {
 
 const styles = StyleSheet.create({
   messageBox: {
-    padding: 10,
-    marginVertical: 5,
-    marginHorizontal: 10,
-    maxWidth: '80%',
-    borderRadius: 10,
+    padding: 12,
+    marginVertical: 4,
+    marginHorizontal: 16,
+    maxWidth: '85%',
+    borderRadius: 16,
   },
   userMessage: {
     alignSelf: 'flex-end',
-    backgroundColor: '#007AFF',
+    backgroundColor: '#0084ff',
   },
   botMessage: {
     alignSelf: 'flex-start',
-    backgroundColor: '#E9ECEF',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E8E8E8',
   },
   messageText: {
-    fontSize: 16,
+    fontSize: 15,
     lineHeight: 20,
   },
   userMessageText: {
-    color: 'white',
+    color: '#FFFFFF',
   },
   botMessageText: {
-    color: 'black',
+    color: '#333333',
   },
 }); 

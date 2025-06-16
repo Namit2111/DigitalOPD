@@ -1,3 +1,4 @@
+import { LinearGradient } from 'expo-linear-gradient';
 import React, { useEffect, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { useChat } from '../hooks/useChat';
@@ -317,15 +318,22 @@ Type "new case" when you're ready to try another case.`);
         totalScore={totalScore}
         casesCompleted={casesCompleted}
       />
-      <ScrollView 
-        style={styles.messagesContainer}
-        ref={scrollViewRef}
-        onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
+      <LinearGradient
+        colors={['#E8F0FF', '#FFF0F7']}
+        style={styles.gradientContainer}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
       >
-        {messages.map((message, index) => (
-          <ChatMessage key={index} message={message} />
-        ))}
-      </ScrollView>
+        <ScrollView 
+          style={styles.messagesContainer}
+          ref={scrollViewRef}
+          onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
+        >
+          {messages.map((message, index) => (
+            <ChatMessage key={index} message={message} />
+          ))}
+        </ScrollView>
+      </LinearGradient>
       <ChatInput
         inputText={inputText}
         onChangeText={setInputText}
@@ -340,6 +348,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#fff',
+  },
+  gradientContainer: {
+    flex: 1,
   },
   messagesContainer: {
     flex: 1,

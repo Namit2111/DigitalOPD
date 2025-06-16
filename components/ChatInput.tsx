@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Image, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
 import { GameState } from '../hooks/useGameState';
 
 interface ChatInputProps {
@@ -29,12 +29,16 @@ export default function ChatInput({ inputText, onChangeText, onSend, gameState }
         style={styles.input}
         value={inputText}
         onChangeText={onChangeText}
-        placeholder={getPlaceholder()}
+        placeholder="Ask anything..."
         onSubmitEditing={onSend}
         multiline
+        placeholderTextColor="#666"
       />
       <TouchableOpacity style={styles.sendButton} onPress={onSend}>
-        <Text style={styles.sendButtonText}>Send</Text>
+        <Image 
+          source={require('../assets/images/send.png')} 
+          style={styles.sendIcon}
+        />
       </TouchableOpacity>
     </View>
   );
@@ -43,29 +47,34 @@ export default function ChatInput({ inputText, onChangeText, onSend, gameState }
 const styles = StyleSheet.create({
   inputContainer: {
     flexDirection: 'row',
-    padding: 10,
+    alignItems: 'center',
+    paddingHorizontal: 15,
+    paddingVertical: 10,
     backgroundColor: '#fff',
     borderTopWidth: 1,
-    borderTopColor: '#E9ECEF',
+    borderTopColor: '#eee',
   },
   input: {
     flex: 1,
-    backgroundColor: '#F8F9FA',
+    backgroundColor: '#f8f8f8',
     borderRadius: 20,
     paddingHorizontal: 15,
-    paddingVertical: 10,
+    paddingVertical: 8,
     marginRight: 10,
     fontSize: 16,
+    maxHeight: 100, // Limits how tall the input can get
   },
   sendButton: {
-    backgroundColor: '#007AFF',
+    width: 40,
+    height: 40,
     borderRadius: 20,
-    paddingHorizontal: 20,
+    backgroundColor: '#0084ff',
     justifyContent: 'center',
+    alignItems: 'center',
   },
-  sendButtonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: '600',
-  },
+  sendIcon: {
+    width: 20,
+    height: 20,
+    tintColor: '#fff', // Makes the icon white
+  }
 }); 
