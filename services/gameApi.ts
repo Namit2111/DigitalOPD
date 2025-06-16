@@ -1,6 +1,6 @@
 // Remote API base – still needed by the Sync-Manager when it is time to
 // push pending records to the backend. Keep it exported.
-export const API_BASE_URL = 'https://befc-27-4-50-236.ngrok-free.app/api';
+export const API_BASE_URL = 'http://localhost:3000/api';
 
 // Local database import
 import { localDb } from '../db/localDb';
