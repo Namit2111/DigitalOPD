@@ -1,4 +1,5 @@
 import NetInfo from '@react-native-community/netinfo';
+import Toast from 'react-native-toast-message';
 import { localDb } from '../db/localDb';
 import { API_BASE_URL } from './gameApi';
 
@@ -11,6 +12,7 @@ import { API_BASE_URL } from './gameApi';
 class SyncManager {
   private isSyncing = false;
   private unsubscribeNetInfo: (() => void) | null = null;
+  private wasOffline = false; // tracks if we were offline before regaining connection
 
   /**
    * Start the background listener. Call this once during app bootstrap.
@@ -26,15 +28,21 @@ class SyncManager {
     // Listen to connectivity changes
     this.unsubscribeNetInfo = NetInfo.addEventListener(state => {
       if (state.isConnected) {
+        // If we were offline before, show syncing banners
+        const showToast = this.wasOffline;
         // Fire-and-forget – no need to await here.
-        this.syncPending().catch(err => console.warn('Sync failed:', err));
+        this.syncPending(showToast).catch(err => console.warn('Sync failed:', err));
+        this.wasOffline = false;
+      } else {
+        this.wasOffline = true;
       }
     });
 
     // Also attempt an initial sync in case we start already online.
     const current = await NetInfo.fetch();
     if (current.isConnected) {
-      this.syncPending().catch(console.error);
+      // Initial launch – no banners
+      this.syncPending(false).catch(console.error);
     }
   }
 
@@ -51,14 +59,30 @@ class SyncManager {
   /**
    * Main synchronisation routine. Runs once at a time.
    */
-  private async syncPending() {
+  private async syncPending(showToast: boolean = false) {
     if (this.isSyncing) return; // prevent re-entrance
     this.isSyncing = true;
     try {
+      if (showToast) {
+        Toast.show({
+          type: 'info',
+          text1: 'Syncing with backend',
+          position: 'top',
+          visibilityTime: 2000,
+        });
+      }
       // Order matters – parent entities first.
       await this.syncSessions();
       await this.syncCaseAttempts();
       await this.syncLearnerActions();
+      if (showToast) {
+        Toast.show({
+          type: 'success',
+          text1: 'Synced',
+          position: 'top',
+          visibilityTime: 2000,
+        });
+      }
     } finally {
       this.isSyncing = false;
     }

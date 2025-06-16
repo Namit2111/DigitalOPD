@@ -40,6 +40,14 @@ export const useConnectionStatus = () => {
             visibilityTime: 3000,
           });
         }, 3000);
+
+        Toast.show({
+          type: 'info',
+          text1: 'Synced',
+          text2: 'Your offline changes are synced with the backend',
+          position: 'top',
+          visibilityTime: 3000,
+        });
         
         setWasPreviouslyOffline(false);
       } else if (newIsOnline) {
